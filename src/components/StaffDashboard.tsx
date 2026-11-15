@@ -10,7 +10,7 @@ import { Department, HelpComplaintRequest } from '../types';
 import { ImageViewer } from './ImageViewer';
 import { AnnouncementAttachmentField } from './AnnouncementAttachmentField';
 import { PendingAnnouncementFile, downloadAnnouncementAttachment } from '../utils/announcementAttachment';
-import { apiFetch } from '../utils/csrf';
+import { apiFetch, parseJsonSafe } from '../utils/csrf';
 
 interface StaffDashboardProps {
   user: any;
@@ -179,7 +179,7 @@ export default function StaffDashboard({
         body: JSON.stringify(payload)
       });
 
-      const resData = await res.json();
+      const resData = await parseJsonSafe(res, 'Failed to save announcement');
       if (!res.ok) {
         throw new Error(resData.error || 'Failed to save announcement.');
       }
@@ -220,7 +220,7 @@ export default function StaffDashboard({
         },
         body: JSON.stringify({ field })
       });
-      const resData = await res.json();
+      const resData = await parseJsonSafe(res, 'Failed to toggle status');
       if (!res.ok) {
         throw new Error(resData.error || 'Failed to toggle status.');
       }
@@ -240,7 +240,7 @@ export default function StaffDashboard({
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      const resData = await res.json();
+      const resData = await parseJsonSafe(res, 'Failed to delete announcement');
       if (!res.ok) {
         throw new Error(resData.error || 'Failed to delete announcement.');
       }
@@ -354,7 +354,7 @@ export default function StaffDashboard({
         })
       });
 
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to update ticket status');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to update ticket status.');
       }
@@ -394,7 +394,7 @@ export default function StaffDashboard({
         })
       });
 
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to append remarks');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to append remarks.');
       }

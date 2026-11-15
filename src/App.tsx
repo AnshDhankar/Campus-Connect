@@ -20,6 +20,19 @@ const ResetPassword = lazy(() => import('./components/ResetPassword'));
 const ChangePassword = lazy(() => import('./components/ChangePassword'));
 const UserProfileModal = lazy(() => import('./components/UserProfileModal'));
 
+function syncClientAuthCookie(tokenValue: string, maxAgeSeconds?: number) {
+  if (typeof document === 'undefined' || !tokenValue) return;
+  const secureFlag = typeof window !== 'undefined' && window.location.protocol === 'https:' ? '; Secure' : '';
+  const maxAgePart = typeof maxAgeSeconds === 'number' ? `; max-age=${maxAgeSeconds}` : '';
+  document.cookie = `token=${tokenValue}${maxAgePart}; path=/; SameSite=Lax${secureFlag}`;
+}
+
+function clearClientAuthCookie() {
+  if (typeof document === 'undefined') return;
+  const secureFlag = typeof window !== 'undefined' && window.location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `token=; max-age=0; path=/; SameSite=Lax${secureFlag}`;
+}
+
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -144,7 +157,7 @@ export default function App() {
             localStorage.removeItem('token');
             sessionStorage.removeItem('user');
             sessionStorage.removeItem('token');
-            document.cookie = 'token=; max-age=0; path=/; SameSite=Strict; Secure';
+            clearClientAuthCookie();
             setUser(null);
             setToken('');
           }
@@ -207,7 +220,7 @@ export default function App() {
     localStorage.removeItem('token');
     sessionStorage.removeItem('user');
     sessionStorage.removeItem('token');
-    document.cookie = 'token=; max-age=0; path=/; SameSite=Strict; Secure';
+    clearClientAuthCookie();
     setIsAuthOpen(false);
     setSessionError('');
   };
@@ -229,7 +242,7 @@ export default function App() {
       }
     }
     if (updatedToken) {
-      document.cookie = `token=${updatedToken}; path=/; SameSite=Strict; Secure`;
+      syncClientAuthCookie(updatedToken);
     }
   };
 
@@ -603,7 +616,7 @@ export default function App() {
                   // Persistent storage + 30 day cookie
                   localStorage.setItem('user', JSON.stringify(u));
                   localStorage.setItem('token', t);
-                  document.cookie = `token=${t}; max-age=${30 * 24 * 60 * 60}; path=/; SameSite=Strict; Secure`;
+                  syncClientAuthCookie(t, 30 * 24 * 60 * 60);
                   
                   setPendingAuth(null);
                   setUserRoleGreeting(u);
@@ -621,7 +634,7 @@ export default function App() {
                   // Session-only storage
                   sessionStorage.setItem('user', JSON.stringify(u));
                   sessionStorage.setItem('token', t);
-                  document.cookie = `token=${t}; path=/; SameSite=Strict; Secure`;
+                  syncClientAuthCookie(t);
                   
                   setPendingAuth(null);
                   setUserRoleGreeting(u);

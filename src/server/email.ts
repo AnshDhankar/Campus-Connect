@@ -346,7 +346,7 @@ export async function handleResolutionNotifications(ticketId: string) {
           <p>Please log in to your account and submit satisfaction ratings to close this docket completely.</p>
         `,
         actionText: 'Submit Portal Feedback',
-        actionUrl: `${process.env.APP_URL || 'http://localhost:3000'}/student/dashboard`
+        actionUrl: `${(process.env.APP_URL || 'http://localhost:3000').replace(/\/+$/, '')}/student/dashboard`
       });
 
       await sendEmail({

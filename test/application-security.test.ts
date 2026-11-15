@@ -101,6 +101,33 @@ async function startTestSuite() {
     });
     assert.notStrictEqual(resDisallowed.headers.get('access-control-allow-origin'), 'https://malicious-attacker-site.com');
 
+    // Trailing slash on APP_URL should still match normalized origin
+    const prevAppUrl = process.env.APP_URL;
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    process.env.APP_URL = 'https://campus-connect-8iom.vercel.app/';
+    const allowedOrigins = getValidatedAllowedOrigins();
+    assert.ok(allowedOrigins.includes('https://campus-connect-8iom.vercel.app'));
+
+    const resVercelApp = await fetch(`http://127.0.0.1:${port}/cors-test`, {
+      headers: { Origin: 'https://campus-connect-8iom.vercel.app' }
+    });
+    assert.strictEqual(resVercelApp.status, 200);
+    assert.strictEqual(resVercelApp.headers.get('access-control-allow-origin'), 'https://campus-connect-8iom.vercel.app');
+
+    // Same forwarded host (Vercel preview deployments / aliases) should be permitted
+    const resPreview = await fetch(`http://127.0.0.1:${port}/cors-test`, {
+      headers: {
+        Origin: 'https://campus-connect-preview.vercel.app',
+        'X-Forwarded-Host': 'campus-connect-preview.vercel.app'
+      }
+    });
+    assert.strictEqual(resPreview.status, 200);
+    assert.strictEqual(resPreview.headers.get('access-control-allow-origin'), 'https://campus-connect-preview.vercel.app');
+
+    process.env.APP_URL = prevAppUrl;
+    process.env.NODE_ENV = prevNodeEnv;
+
     server.close();
   });
 

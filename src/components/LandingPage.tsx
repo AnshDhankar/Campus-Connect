@@ -405,7 +405,16 @@ export default function LandingPage({ onOpenDbStatus, onSuccess, departments, is
         })
       });
 
-      const data = await res.json();
+      const contentType = res.headers.get('content-type') || '';
+      let data: any = null;
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        console.warn('[CLIENT STUDENT REGISTER] Unexpected non-JSON response:', text.slice(0, 300));
+        throw new Error(text || `Registration service returned HTTP ${res.status}. Please retry.`);
+      }
+
       if (!res.ok) {
         throw new Error(data.error || 'Registration failed.');
       }
@@ -449,7 +458,16 @@ export default function LandingPage({ onOpenDbStatus, onSuccess, departments, is
         })
       });
 
-      const data = await res.json();
+      const contentType = res.headers.get('content-type') || '';
+      let data: any = null;
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        console.warn('[CLIENT INSTITUTION REGISTER] Unexpected non-JSON response:', text.slice(0, 300));
+        throw new Error(text || `Onboarding service returned HTTP ${res.status}. Please verify server logs and retry.`);
+      }
+
       if (!res.ok) {
         throw new Error(data.error || 'Onboarding registration failed.');
       }

@@ -77,22 +77,45 @@ export function createHelmetMiddleware(): RequestHandler {
 // 2. STRICT CORS CONFIGURATION
 // ============================================================================
 
+function normalizeOrigin(rawOrigin: string): string {
+  return rawOrigin.trim().replace(/\/+$/, '');
+}
+
+function normalizeHostOrigin(rawHost?: string): string {
+  if (!rawHost) return '';
+  const cleaned = rawHost.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  return cleaned ? `https://${cleaned}` : '';
+}
+
+function getRequestHost(req: Request): string {
+  const rawHost = (req.headers['x-forwarded-host'] || req.headers['host'] || '') as string;
+  if (!rawHost) return '';
+  return rawHost.split(',')[0].trim();
+}
+
+export function isSameHostRequestOrigin(req: Request, rawOrigin: string): boolean {
+  const origin = normalizeOrigin(rawOrigin);
+  const requestHost = getRequestHost(req);
+  if (!origin || !requestHost) return false;
+  return origin === `https://${requestHost}` || origin === `http://${requestHost}`;
+}
+
 export function getValidatedAllowedOrigins(env: NodeJS.ProcessEnv = process.env): string[] {
   const isProduction = env.NODE_ENV === 'production';
   const customOrigins = (env.CORS_ALLOWED_ORIGINS || env.APP_ORIGIN || '')
     .split(',')
-    .map(o => o.trim())
+    .map(normalizeOrigin)
     .filter(Boolean);
 
   const vercelOrigins = [
-    env.VERCEL_URL ? `https://${env.VERCEL_URL.trim()}` : '',
-    env.VERCEL_BRANCH_URL ? `https://${env.VERCEL_BRANCH_URL.trim()}` : '',
-    env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL.trim()}` : '',
+    normalizeHostOrigin(env.VERCEL_URL),
+    normalizeHostOrigin(env.VERCEL_BRANCH_URL),
+    normalizeHostOrigin(env.VERCEL_PROJECT_PRODUCTION_URL),
   ].filter(Boolean);
 
   if (isProduction) {
     const prodDefaults = [
-      env.APP_URL ? env.APP_URL.trim() : '',
+      env.APP_URL ? normalizeOrigin(env.APP_URL) : '',
       ...vercelOrigins,
     ].filter(Boolean);
 
@@ -123,7 +146,7 @@ export function getValidatedAllowedOrigins(env: NodeJS.ProcessEnv = process.env)
     'http://localhost:5173',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:5173',
-    env.APP_URL ? env.APP_URL.trim() : '',
+    env.APP_URL ? normalizeOrigin(env.APP_URL) : '',
     ...vercelOrigins,
   ].filter(Boolean);
 
@@ -133,43 +156,47 @@ export function getValidatedAllowedOrigins(env: NodeJS.ProcessEnv = process.env)
 export function createCorsMiddleware(): RequestHandler {
   const isProduction = process.env.NODE_ENV === 'production';
 
-  const corsOptions: CorsOptions = {
-    origin: (origin, callback) => {
-      // Allow requests with no origin (e.g. same-origin, server-to-server, mobile apps, curl)
-      if (!origin) {
-        return callback(null, true);
-      }
-
-      const allowedOrigins = getValidatedAllowedOrigins();
-
-      // In non-production, also permit matching AI Studio, Cloud Run, and local origins
-      if (!isProduction) {
-        if (
-          /^https:\/\/[a-z0-9-.]+\.run\.app$/i.test(origin) ||
-          /^https:\/\/([a-z0-9-]+\.)*google\.com$/i.test(origin) ||
-          /^https:\/\/([a-z0-9-]+\.)*googleusercontent\.com$/i.test(origin) ||
-          /^http:\/\/localhost:[0-9]+$/i.test(origin) ||
-          /^http:\/\/127\.0\.0\.1:[0-9]+$/i.test(origin)
-        ) {
-          return callback(null, true);
-        }
-      }
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      console.warn(`[CORS REJECTED] Origin "${origin}" is not authorized.`);
-      return callback(new Error(`CORS policy rejection: Origin "${origin}" not allowed.`));
-    },
+  const baseCorsOptions: Omit<CorsOptions, 'origin'> = {
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'x-csrf-token', 'X-Requested-With', 'Accept'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'x-csrf-token', 'X-Requested-With', 'Accept', 'Idempotency-Key', 'x-idempotency-key'],
     exposedHeaders: ['X-CSRF-Token', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset', 'Retry-After'],
     maxAge: 86400 // 24 hours preflight cache
   };
 
-  return cors(corsOptions);
+  return cors((req, callback) => {
+    const rawOrigin = req.headers['origin'];
+    // Allow requests with no origin (e.g. same-origin, server-to-server, mobile apps, curl)
+    if (!rawOrigin || typeof rawOrigin !== 'string') {
+      return callback(null, { ...baseCorsOptions, origin: true });
+    }
+
+    const origin = normalizeOrigin(rawOrigin);
+    const allowedOrigins = getValidatedAllowedOrigins();
+    const isSameHost = isSameHostRequestOrigin(req as Request, origin);
+
+    if (isSameHost || allowedOrigins.includes(origin)) {
+      return callback(null, { ...baseCorsOptions, origin: true });
+    }
+
+    // In non-production, also permit matching AI Studio, Cloud Run, and local origins
+    if (!isProduction) {
+      if (
+        /^https:\/\/[a-z0-9-.]+\.run\.app$/i.test(origin) ||
+        /^https:\/\/([a-z0-9-]+\.)*google\.com$/i.test(origin) ||
+        /^https:\/\/([a-z0-9-]+\.)*googleusercontent\.com$/i.test(origin) ||
+        /^http:\/\/localhost:[0-9]+$/i.test(origin) ||
+        /^http:\/\/127\.0\.0\.1:[0-9]+$/i.test(origin)
+      ) {
+        return callback(null, { ...baseCorsOptions, origin: true });
+      }
+    }
+
+    console.warn(`[CORS REJECTED] Origin "${origin}" is not authorized.`);
+    const corsError: any = new Error(`CORS policy rejection: Origin "${origin}" not allowed.`);
+    corsError.statusCode = 403;
+    return callback(corsError);
+  });
 }
 
 // ============================================================================
@@ -188,12 +215,18 @@ export interface RateLimiters {
 export function createRateLimiters(): RateLimiters {
   // Global API Limiter: 150 requests per 15 minutes per IP
   const isProd = process.env.NODE_ENV === 'production';
+  const proxySafeValidate = {
+    xForwardedForHeader: false,
+    forwardedHeader: false,
+  };
 
   const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: isProd ? 150 : 2000,
     standardHeaders: true,
     legacyHeaders: false,
+    passOnStoreError: true,
+    validate: proxySafeValidate,
     message: { error: 'Too many requests from this IP. Please try again after 15 minutes.', retryAfterSeconds: 900 }
   });
 
@@ -203,6 +236,8 @@ export function createRateLimiters(): RateLimiters {
     max: isProd ? 10 : 200,
     standardHeaders: true,
     legacyHeaders: false,
+    passOnStoreError: true,
+    validate: proxySafeValidate,
     message: { error: 'Too many authentication attempts. For security reasons, please retry after 15 minutes.', retryAfterSeconds: 900 }
   });
 
@@ -212,6 +247,8 @@ export function createRateLimiters(): RateLimiters {
     max: isProd ? 3 : 50,
     standardHeaders: true,
     legacyHeaders: false,
+    passOnStoreError: true,
+    validate: proxySafeValidate,
     message: { error: 'Too many password reset requests. Please wait 15 minutes before requesting again.', retryAfterSeconds: 900 }
   });
 
@@ -221,6 +258,8 @@ export function createRateLimiters(): RateLimiters {
     max: isProd ? 5 : 50,
     standardHeaders: true,
     legacyHeaders: false,
+    passOnStoreError: true,
+    validate: proxySafeValidate,
     message: { error: 'Too many invalid OTP attempts. Please wait 15 minutes or request a new code.', retryAfterSeconds: 900 }
   });
 
@@ -230,6 +269,8 @@ export function createRateLimiters(): RateLimiters {
     max: isProd ? 5 : 50,
     standardHeaders: true,
     legacyHeaders: false,
+    passOnStoreError: true,
+    validate: proxySafeValidate,
     message: { error: 'Too many password change attempts. Please wait 15 minutes.', retryAfterSeconds: 900 }
   });
 
@@ -239,6 +280,8 @@ export function createRateLimiters(): RateLimiters {
     max: isProd ? 20 : 200,
     standardHeaders: true,
     legacyHeaders: false,
+    passOnStoreError: true,
+    validate: proxySafeValidate,
     message: { error: 'Rate limit exceeded for administrative operations. Please wait 15 minutes.', retryAfterSeconds: 900 }
   });
 
@@ -319,15 +362,12 @@ export function verifyCsrfProtection(req: Request, res: Response, next: NextFunc
   }
 
   // Verify Origin header against allowed origins if present on mutating requests
-  const origin = req.headers['origin'];
-  if (origin && typeof origin === 'string') {
+  const rawOrigin = req.headers['origin'];
+  if (rawOrigin && typeof rawOrigin === 'string') {
+    const origin = normalizeOrigin(rawOrigin);
     const isProd = process.env.NODE_ENV === 'production';
     const allowed = getValidatedAllowedOrigins();
-    const requestHost = req.headers['x-forwarded-host'] || req.headers['host'];
-    const isSameHostOrigin = Boolean(
-      requestHost &&
-      (origin === `https://${requestHost}` || origin === `http://${requestHost}`)
-    );
+    const isSameHostOrigin = isSameHostRequestOrigin(req, origin);
 
     let isAllowed = allowed.includes(origin) || isSameHostOrigin;
     if (!isProd) {

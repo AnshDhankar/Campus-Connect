@@ -90,6 +90,17 @@ export async function createApp(): Promise<express.Express> {
         retryAfterSeconds: 5
       });
     }
+    if (error?.code === 11000) {
+      const dupField = error?.keyPattern ? Object.keys(error.keyPattern)[0] : '';
+      return res.status(409).json({
+        error: dupField
+          ? `A record with this ${dupField} already exists.`
+          : 'A duplicate record already exists.'
+      });
+    }
+    if (error?.name === 'ValidationError' || error?.name === 'CastError') {
+      return res.status(400).json({ error: error.message || 'Invalid request data.' });
+    }
     return res.status(defaultStatus).json({ error: error?.message || defaultMessage });
   }
 
@@ -410,6 +421,10 @@ export async function createApp(): Promise<express.Express> {
         return res.status(404).json({ error: 'Institution profile not found to update.' });
       }
 
+      if (newToken) {
+        res.cookie('token', newToken, getAuthCookieOptions());
+      }
+
       res.json({
         success: true,
         message: 'Institution profile updated successfully.',
@@ -418,7 +433,7 @@ export async function createApp(): Promise<express.Express> {
         token: newToken,
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message || 'Failed to update institution profile.' });
+      sendDbAwareError(res, error, 'Failed to update institution profile.');
     }
   });
 
@@ -464,18 +479,23 @@ export async function createApp(): Promise<express.Express> {
         adminPassword
       } = req.body;
 
-      if (!name || !type || !adminName || !adminEmail || !adminPassword) {
+      const trimmedName = typeof name === 'string' ? name.trim() : '';
+      const trimmedType = typeof type === 'string' ? type.trim() : '';
+      const trimmedAdminName = typeof adminName === 'string' ? adminName.trim() : '';
+      const normalizedAdminEmail = typeof adminEmail === 'string' ? adminEmail.toLowerCase().trim() : '';
+
+      if (!trimmedName || !trimmedType || !trimmedAdminName || !normalizedAdminEmail || !adminPassword) {
         return res.status(400).json({ error: 'Please submit all required registration fields.' });
       }
 
       // Check if institution already registered
       const allInsts = await db.institutions.findMany();
-      if (allInsts.some(inst => inst.name.toLowerCase() === name.toLowerCase())) {
+      if (allInsts.some(inst => inst.name.trim().toLowerCase() === trimmedName.toLowerCase())) {
         return res.status(400).json({ error: 'An institution with this name is already registered.' });
       }
 
       // Check if admin email already exists in staff
-      const existingStaff = await db.staff.findByEmail(adminEmail);
+      const existingStaff = await db.staff.findByEmail(normalizedAdminEmail);
       if (existingStaff) {
         return res.status(400).json({ error: 'Admin email already registered in staff records.' });
       }
@@ -497,42 +517,48 @@ export async function createApp(): Promise<express.Express> {
 
       // Create Institution with rich fields
       const inst = await db.institutions.create({
-        name,
-        type,
-        category: category || '',
-        address: address || '',
-        city: city || '',
-        state: state || '',
-        country: country || '',
-        postalCode: postalCode || '',
-        website: website || '',
+        name: trimmedName,
+        type: trimmedType,
+        category: typeof category === 'string' ? category.trim() : '',
+        address: typeof address === 'string' ? address.trim() : '',
+        city: typeof city === 'string' ? city.trim() : '',
+        state: typeof state === 'string' ? state.trim() : '',
+        country: typeof country === 'string' ? country.trim() : '',
+        postalCode: typeof postalCode === 'string' ? postalCode.trim() : '',
+        website: typeof website === 'string' ? website.trim() : '',
         logo: resolvedLogo,
-        officialEmail: officialEmail || adminEmail,
-        contactNumber: contactNumber || '',
-        description: description || '',
+        officialEmail: (typeof officialEmail === 'string' && officialEmail.trim()) ? officialEmail.trim().toLowerCase() : normalizedAdminEmail,
+        contactNumber: typeof contactNumber === 'string' ? contactNumber.trim() : '',
+        description: typeof description === 'string' ? description.trim() : '',
         isTest: Boolean(req.body.isTest),
         status: req.body.status || (req.body.isTest ? 'test' : 'active'),
       });
 
-      // Create Admin account for that institution
-      const hashedAdminPassword = await bcrypt.hash(adminPassword, 10);
-      
-      const newAdmin = await db.staff.create({
-        name: adminName,
-        email: adminEmail.toLowerCase().trim(),
-        password: hashedAdminPassword,
-        role: 'superadmin',
-        departmentKey: 'administration',
-        disabled: false,
-        institutionId: inst.id
-      });
+      // Create Admin account for that institution (roll back institution if admin creation fails)
+      let newAdmin: any;
+      try {
+        const hashedAdminPassword = await bcrypt.hash(adminPassword, 10);
+
+        newAdmin = await db.staff.create({
+          name: trimmedAdminName,
+          email: normalizedAdminEmail,
+          password: hashedAdminPassword,
+          role: 'superadmin',
+          departmentKey: 'administration',
+          disabled: false,
+          institutionId: inst.id
+        });
+      } catch (adminErr) {
+        await db.institutions.delete(inst.id).catch(() => {});
+        throw adminErr;
+      }
 
       // Automatically issue token
       const token = generateToken({
         id: newAdmin.id,
         role: 'superadmin',
-        name: adminName,
-        email: adminEmail,
+        name: trimmedAdminName,
+        email: normalizedAdminEmail,
         departmentKey: 'administration',
         institutionId: inst.id,
       });
@@ -545,8 +571,8 @@ export async function createApp(): Promise<express.Express> {
         token,
         user: {
           id: newAdmin.id,
-          name: adminName,
-          email: adminEmail,
+          name: trimmedAdminName,
+          email: normalizedAdminEmail,
           role: 'superadmin',
           departmentKey: 'administration',
           institutionId: inst.id,
@@ -1715,10 +1741,13 @@ export async function createApp(): Promise<express.Express> {
         institutionId: instId,
       });
 
-      // Trigger Email Notification System background notifications
-      handleSubmissionNotifications(ticket.id).catch(err => {
+      // Trigger Email Notification System notifications (bounded await on serverless so execution isn't frozen before dispatch)
+      const submissionEmailPromise = handleSubmissionNotifications(ticket.id).catch(err => {
         console.error('Email pipeline submission trigger error:', err);
       });
+      if (IS_SERVERLESS) {
+        await Promise.race([submissionEmailPromise, new Promise(resolve => setTimeout(resolve, 4000))]);
+      }
 
       res.status(201).json(ticket);
     } catch (error) {
@@ -1914,9 +1943,12 @@ export async function createApp(): Promise<express.Express> {
       });
 
       if (status === 'resolved') {
-        handleResolutionNotifications(updatedTicket.id).catch(err => {
+        const resolutionEmailPromise = handleResolutionNotifications(updatedTicket.id).catch(err => {
           console.error('Email pipeline resolution trigger error:', err);
         });
+        if (IS_SERVERLESS) {
+          await Promise.race([resolutionEmailPromise, new Promise(resolve => setTimeout(resolve, 4000))]);
+        }
       }
 
       res.json(updatedTicket);
@@ -2177,10 +2209,13 @@ export async function createApp(): Promise<express.Express> {
         institutionId: instId,
       });
 
-      // Trigger Email Notification System background notifications
-      handleReopenNotifications(updatedTicket.id, reason).catch(err => {
+      // Trigger Email Notification System notifications (bounded await on serverless so execution isn't frozen before dispatch)
+      const reopenEmailPromise = handleReopenNotifications(updatedTicket.id, reason).catch(err => {
         console.error('Email pipeline reopen trigger error:', err);
       });
+      if (IS_SERVERLESS) {
+        await Promise.race([reopenEmailPromise, new Promise(resolve => setTimeout(resolve, 4000))]);
+      }
 
       res.json(updatedTicket);
     } catch (error) {
@@ -3331,25 +3366,18 @@ export async function createApp(): Promise<express.Express> {
       if (announcement.departmentId) {
         // Department-level announcement
         staffDepts = [announcement.departmentId];
-        const allStudents = await db.students.findMany();
-        students = allStudents.filter(s => 
-          ((s as any).institutionId || 'default') === instId && 
-          (s as any).departmentKey === announcement.departmentId
-        );
+        const instStudents = await db.students.findMany({ institutionId: instId });
+        students = instStudents.filter(s => (s as any).departmentKey === announcement.departmentId);
       } else {
         // Institution-wide announcement
         if (announcement.targetAudience === 'institution' || announcement.targetAudience === 'all') {
           const depts = await db.departments.findMany(instId);
           staffDepts = depts.map(d => d.key);
-          const allStudents = await db.students.findMany();
-          students = allStudents.filter(s => ((s as any).institutionId || 'default') === instId);
+          students = await db.students.findMany({ institutionId: instId });
         } else if (announcement.targetAudience === 'selected_departments') {
           staffDepts = announcement.targetDepartments || [];
-          const allStudents = await db.students.findMany();
-          students = allStudents.filter(s => 
-            ((s as any).institutionId || 'default') === instId && 
-            announcement.targetDepartments?.includes((s as any).departmentKey)
-          );
+          const instStudents = await db.students.findMany({ institutionId: instId });
+          students = instStudents.filter(s => announcement.targetDepartments?.includes((s as any).departmentKey));
         }
       }
 
@@ -3976,7 +4004,8 @@ export async function createApp(): Promise<express.Express> {
   if (!IS_SERVERLESS) {
     if (process.env.NODE_ENV !== 'production') {
       // Mount Vite development server dynamically so production/serverless never bundles Vite
-      const { createServer: createViteServer } = await import('vite');
+      const vitePkg = 'vite';
+      const { createServer: createViteServer } = await import(vitePkg);
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: 'spa',

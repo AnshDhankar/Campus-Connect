@@ -4,7 +4,7 @@ import {
   X, Check, AlertCircle, Calendar, Hash, Shield, BadgeAlert
 } from 'lucide-react';
 import { Department } from '../types';
-import { apiFetch } from '../utils/csrf';
+import { apiFetch, parseJsonSafe } from '../utils/csrf';
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -61,16 +61,21 @@ export default function UserProfileModal({
 
     try {
       if (user.role === 'student') {
+        const storedToken = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json'
+        };
+        if (storedToken) {
+          headers['Authorization'] = `Bearer ${storedToken}`;
+        }
         const res = await apiFetch('/api/students/me', {
           method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+          headers,
           body: JSON.stringify({ name: editName.trim() })
         });
+        const data = await parseJsonSafe(res, 'Failed to update profile name');
         if (!res.ok) {
-          const errData = await res.json().catch(() => null);
-          throw new Error(errData?.error || 'Failed to update profile name.');
+          throw new Error(data?.error || 'Failed to update profile name.');
         }
       }
 

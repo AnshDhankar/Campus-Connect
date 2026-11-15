@@ -12,7 +12,7 @@ import { ImageViewer } from './ImageViewer';
 import { readAndOptimizeFileAsDataUrl } from '../utils/imageCompression';
 import { AnnouncementAttachmentField } from './AnnouncementAttachmentField';
 import { PendingAnnouncementFile, downloadAnnouncementAttachment } from '../utils/announcementAttachment';
-import { apiFetch } from '../utils/csrf';
+import { apiFetch, parseJsonSafe } from '../utils/csrf';
 
 interface AdminDashboardProps {
   user: any;
@@ -193,7 +193,7 @@ export default function AdminDashboard({
         })
       });
 
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to update institution profile');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to update institution profile.');
       }
@@ -230,7 +230,7 @@ export default function AdminDashboard({
         }
       });
 
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to delete institution');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to delete institution.');
       }
@@ -313,7 +313,7 @@ export default function AdminDashboard({
         },
         body: JSON.stringify({ officerId })
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to assign officer');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to assign officer.');
       }
@@ -340,7 +340,7 @@ export default function AdminDashboard({
         },
         body: JSON.stringify({ priority })
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to update priority');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to update priority.');
       }
@@ -367,7 +367,7 @@ export default function AdminDashboard({
         },
         body: JSON.stringify({ internalNotes })
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to update internal notes');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to update internal notes.');
       }
@@ -393,7 +393,7 @@ export default function AdminDashboard({
         },
         body: JSON.stringify({ status, remarks })
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to update ticket status');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to update ticket status.');
       }
@@ -553,7 +553,7 @@ export default function AdminDashboard({
         },
         body: JSON.stringify({ departmentKey: reassignDeptKey })
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to reassign request');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to reassign request.');
       }
@@ -634,7 +634,7 @@ export default function AdminDashboard({
         body: JSON.stringify(payload)
       });
 
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to save sub-department');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to save sub-department.');
       }
@@ -681,7 +681,7 @@ export default function AdminDashboard({
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to delete sub-department');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to delete sub-department.');
       }
@@ -706,7 +706,7 @@ export default function AdminDashboard({
         },
         body: JSON.stringify({ status: newStatus })
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to toggle status');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to toggle status.');
       }
@@ -814,7 +814,7 @@ export default function AdminDashboard({
         body: JSON.stringify(payload)
       });
 
-      const resData = await res.json();
+      const resData = await parseJsonSafe(res, 'Failed to persist announcement');
       if (!res.ok) {
         throw new Error(resData.error || 'Failed to persist announcement.');
       }
@@ -857,7 +857,7 @@ export default function AdminDashboard({
         },
         body: JSON.stringify({ field })
       });
-      const resData = await res.json();
+      const resData = await parseJsonSafe(res, 'Failed to toggle status');
       if (!res.ok) {
         throw new Error(resData.error || 'Failed to toggle status.');
       }
@@ -877,7 +877,7 @@ export default function AdminDashboard({
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      const resData = await res.json();
+      const resData = await parseJsonSafe(res, 'Failed to delete announcement');
       if (!res.ok) {
         throw new Error(resData.error || 'Failed to delete announcement.');
       }
@@ -896,7 +896,7 @@ export default function AdminDashboard({
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      const resData = await res.json();
+      const resData = await parseJsonSafe(res, 'Failed to restore announcement');
       if (!res.ok) {
         throw new Error(resData.error || 'Failed to restore announcement.');
       }
@@ -916,7 +916,7 @@ export default function AdminDashboard({
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      const resData = await res.json();
+      const resData = await parseJsonSafe(res, 'Failed to permanently delete announcement');
       if (!res.ok) {
         throw new Error(resData.error || 'Failed to permanently delete announcement.');
       }
@@ -1112,7 +1112,7 @@ export default function AdminDashboard({
         })
       });
 
-      const resData = await res.json();
+      const resData = await parseJsonSafe(res, `Failed to ${isEditing ? 'update' : 'create'} staff member`);
       if (!res.ok) {
         throw new Error(resData.error || `Failed to ${isEditing ? 'update' : 'create'} staff member.`);
       }
@@ -1194,7 +1194,7 @@ export default function AdminDashboard({
         })
       });
 
-      const resData = await res.json();
+      const resData = await parseJsonSafe(res, 'Failed to establish custom department');
       if (!res.ok) {
         throw new Error(resData.error || 'Failed to establish custom department.');
       }
@@ -1265,7 +1265,7 @@ export default function AdminDashboard({
           additionalEmails: newDeptAdditionalEmails,
         })
       });
-      const resData = await res.json();
+      const resData = await parseJsonSafe(res, 'Failed to update department');
       if (!res.ok) {
         throw new Error(resData.error || 'Failed to update department.');
       }
@@ -1317,7 +1317,7 @@ export default function AdminDashboard({
           passwordType: typeVal
         })
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to reset password');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to reset password.');
       }
@@ -1342,7 +1342,7 @@ export default function AdminDashboard({
           'Authorization': `Bearer ${token}`
         }
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to toggle account condition');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to toggle account condition.');
       }
@@ -1365,7 +1365,7 @@ export default function AdminDashboard({
           'Authorization': `Bearer ${token}`
         }
       });
-      const data = await res.json();
+      const data = await parseJsonSafe(res, 'Failed to unlock account');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to unlock account.');
       }

@@ -13,7 +13,7 @@ import {
   fetchAnnouncementImagePreviewUrl,
   formatAttachmentSize
 } from '../utils/announcementAttachment';
-import { apiFetch } from '../utils/csrf';
+import { apiFetch, parseJsonSafe } from '../utils/csrf';
 
 interface StudentDashboardProps {
   user: any;
@@ -315,7 +315,7 @@ export default function StudentDashboard({
         },
         body: JSON.stringify({ reason })
       });
-      const resData = await res.json();
+      const resData = await parseJsonSafe(res, 'Failed to reopen ticket');
       if (!res.ok) {
         throw new Error(resData.error || 'Failed to reopen ticket.');
       }
@@ -332,8 +332,14 @@ export default function StudentDashboard({
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 4 * 1024 * 1024) {
-        setFormError('Attachment size must not exceed 4MB.');
+      const isImage = file.type.startsWith('image/');
+      const maxAllowedBytes = isImage ? 4 * 1024 * 1024 : 3 * 1024 * 1024;
+      if (file.size > maxAllowedBytes) {
+        setFormError(
+          isImage
+            ? 'Image size must not exceed 4MB.'
+            : 'Document attachment size must not exceed 3MB.'
+        );
         return;
       }
       setFileName(file.name);
@@ -413,7 +419,7 @@ export default function StudentDashboard({
         })
       });
 
-      const resData = await res.json();
+      const resData = await parseJsonSafe(res, 'Failed to submit college ticket');
       if (!res.ok) {
         throw new Error(resData.error || 'Failed to submit college ticket.');
       }

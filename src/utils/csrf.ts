@@ -93,3 +93,23 @@ export function getSecureHeaders(token?: string, extraHeaders: Record<string, st
 
   return headers;
 }
+
+/**
+ * Safely parses JSON responses and throws descriptive errors on HTML/text gateway responses (e.g. 413/502/504)
+ */
+export async function parseJsonSafe<T = any>(res: Response, fallbackErrorPrefix = 'Server request failed'): Promise<T> {
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    return (await res.json()) as T;
+  }
+  const text = await res.text().catch(() => '');
+  const trimmed = text.trim();
+  if (res.status === 413) {
+    throw new Error('Uploaded file or request payload is too large for the server limit (max ~3 MB). Please choose a smaller file.');
+  }
+  throw new Error(
+    trimmed && !trimmed.startsWith('<')
+      ? trimmed.slice(0, 200)
+      : `${fallbackErrorPrefix} (HTTP ${res.status}). Please refresh and retry.`
+  );
+}

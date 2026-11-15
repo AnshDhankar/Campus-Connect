@@ -4,7 +4,7 @@
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist",
   "functions": {
-    "api/index.ts": {
+    "api/index.cjs": {
       "maxDuration": 30
     }
   },
