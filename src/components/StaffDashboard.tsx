@@ -10,7 +10,7 @@ import { Department, HelpComplaintRequest } from '../types';
 import { ImageViewer } from './ImageViewer';
 import { AnnouncementAttachmentField } from './AnnouncementAttachmentField';
 import { PendingAnnouncementFile, downloadAnnouncementAttachment } from '../utils/announcementAttachment';
-import { ensureCsrfToken } from '../utils/csrf';
+import { apiFetch } from '../utils/csrf';
 
 interface StaffDashboardProps {
   user: any;
@@ -169,24 +169,12 @@ export default function StaffDashboard({
       const url = isEditing ? `/api/announcements/${isEditingAnnouncement.id}` : '/api/announcements';
       const method = isEditing ? 'PUT' : 'POST';
 
-      let csrfToken = '';
-      try {
-        csrfToken = await ensureCsrfToken();
-      } catch {
-        // fallback if CSRF endpoint unreachable
-      }
-
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      };
-      if (csrfToken) {
-        headers['X-CSRF-Token'] = csrfToken;
-      }
-
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         credentials: 'include',
         body: JSON.stringify(payload)
       });
@@ -224,7 +212,7 @@ export default function StaffDashboard({
     try {
       setAnnError('');
       setAnnSuccess('');
-      const res = await fetch(`/api/announcements/${id}/toggle`, {
+      const res = await apiFetch(`/api/announcements/${id}/toggle`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -248,7 +236,7 @@ export default function StaffDashboard({
     try {
       setAnnError('');
       setAnnSuccess('');
-      const res = await fetch(`/api/announcements/${id}`, {
+      const res = await apiFetch(`/api/announcements/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -354,7 +342,7 @@ export default function StaffDashboard({
       setStatusError('');
       setStatusSuccess('');
 
-      const res = await fetch(`/api/requests/${selectedTicket.id}/status`, {
+      const res = await apiFetch(`/api/requests/${selectedTicket.id}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -394,7 +382,7 @@ export default function StaffDashboard({
       setStatusError('');
       setStatusSuccess('');
 
-      const res = await fetch(`/api/requests/${selectedTicket.id}/status`, {
+      const res = await apiFetch(`/api/requests/${selectedTicket.id}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

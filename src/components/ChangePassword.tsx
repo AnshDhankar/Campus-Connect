@@ -3,6 +3,7 @@ import {
   KeyRound, Lock, Eye, EyeOff, Check, X, ShieldCheck, 
   ArrowLeft, AlertCircle, CheckCircle2, Loader2, Shield
 } from 'lucide-react';
+import { apiFetch } from '../utils/csrf';
 
 interface ChangePasswordProps {
   user: any;
@@ -72,7 +73,7 @@ export default function ChangePassword({
     setError('');
 
     try {
-      const res = await fetch('/api/auth/change-password', {
+      const res = await apiFetch('/api/auth/change-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

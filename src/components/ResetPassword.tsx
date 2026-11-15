@@ -4,6 +4,7 @@ import {
   Lock, Check, X, Eye, EyeOff, ShieldAlert, KeyRound, 
   ArrowLeft, CheckCircle2, Loader2, Sparkles, AlertCircle 
 } from 'lucide-react';
+import { apiFetch } from '../utils/csrf';
 
 interface ResetPasswordProps {
   isDarkMode: boolean;
@@ -39,7 +40,7 @@ export default function ResetPassword({ isDarkMode }: ResetPasswordProps) {
 
     const validateToken = async () => {
       try {
-        const res = await fetch('/api/auth/validate-reset-token', {
+        const res = await apiFetch('/api/auth/validate-reset-token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token }),
@@ -99,7 +100,7 @@ export default function ResetPassword({ isDarkMode }: ResetPasswordProps) {
     setError('');
 
     try {
-      const res = await fetch('/api/auth/reset-password', {
+      const res = await apiFetch('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

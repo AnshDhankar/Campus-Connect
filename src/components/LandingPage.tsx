@@ -6,7 +6,7 @@ import {
   Sparkles, AlertCircle, CheckCircle2, Upload, X
 } from 'lucide-react';
 import { Department } from '../types';
-import { ensureCsrfToken } from '../utils/csrf';
+import { apiFetch } from '../utils/csrf';
 import { readAndOptimizeFileAsDataUrl } from '../utils/imageCompression';
 
 interface LandingPageProps {
@@ -198,24 +198,10 @@ export default function LandingPage({ onOpenDbStatus, onSuccess, departments, is
 
     try {
       const activeInstId = selectedInst?.id || institutions[0]?.id || 'default';
-      let csrfToken = '';
-      try {
-        csrfToken = await ensureCsrfToken();
-      } catch {
-        // Fallback gracefully
-      }
-
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
-      };
-      if (csrfToken) {
-        headers['X-CSRF-Token'] = csrfToken;
-      }
-
-      const res = await fetch('/api/auth/login', {
+      const res = await apiFetch('/api/auth/login', {
         method: 'POST',
         credentials: 'include',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), password, institutionId: activeInstId, role: loginRole })
       });
 
@@ -258,7 +244,7 @@ export default function LandingPage({ onOpenDbStatus, onSuccess, departments, is
 
     try {
       const activeInstId = selectedInst?.id || institutions[0]?.id || 'default';
-      const res = await fetch('/api/auth/forgot-password', {
+      const res = await apiFetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -307,7 +293,7 @@ export default function LandingPage({ onOpenDbStatus, onSuccess, departments, is
 
     try {
       const activeInstId = selectedInst?.id || institutions[0]?.id || 'default';
-      const res = await fetch('/api/auth/verify-otp', {
+      const res = await apiFetch('/api/auth/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -357,7 +343,7 @@ export default function LandingPage({ onOpenDbStatus, onSuccess, departments, is
     setForgotError('');
 
     try {
-      const res = await fetch('/api/auth/reset-password', {
+      const res = await apiFetch('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -406,7 +392,7 @@ export default function LandingPage({ onOpenDbStatus, onSuccess, departments, is
     setStudentError('');
 
     try {
-      const res = await fetch('/api/auth/register', {
+      const res = await apiFetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -445,7 +431,7 @@ export default function LandingPage({ onOpenDbStatus, onSuccess, departments, is
     setRegError('');
 
     try {
-      const res = await fetch('/api/institutions/register', {
+      const res = await apiFetch('/api/institutions/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

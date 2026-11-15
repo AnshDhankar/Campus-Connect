@@ -4,6 +4,7 @@ import {
   X, Check, AlertCircle, Calendar, Hash, Shield, BadgeAlert
 } from 'lucide-react';
 import { Department } from '../types';
+import { apiFetch } from '../utils/csrf';
 
 interface UserProfileModalProps {
   isOpen: boolean;
@@ -60,15 +61,17 @@ export default function UserProfileModal({
 
     try {
       if (user.role === 'student') {
-        const csrfToken = document.cookie.split('; ').find(row => row.startsWith('XSRF-TOKEN='))?.split('=')[1];
-        await fetch('/api/students/me', {
+        const res = await apiFetch('/api/students/me', {
           method: 'PATCH',
           headers: {
-            'Content-Type': 'application/json',
-            ...(csrfToken ? { 'x-csrf-token': csrfToken } : {})
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({ name: editName.trim() })
         });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => null);
+          throw new Error(errData?.error || 'Failed to update profile name.');
+        }
       }
 
       const updatedUser = { ...user, name: editName.trim() };
@@ -78,8 +81,8 @@ export default function UserProfileModal({
       setIsEditing(false);
       setSaveSuccess('Display name updated successfully.');
       setTimeout(() => setSaveSuccess(''), 3000);
-    } catch {
-      setSaveError('Failed to update profile name.');
+    } catch (err: any) {
+      setSaveError(err?.message || 'Failed to update profile name.');
     }
   };
 

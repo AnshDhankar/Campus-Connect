@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mail, Hash, User, Phone, Lock, Eye, EyeOff, LayoutPanelLeft, ShieldAlert, GraduationCap, Landmark, Users, ArrowLeft, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { ensureCsrfToken } from '../utils/csrf';
+import { apiFetch } from '../utils/csrf';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -132,24 +132,10 @@ export default function AuthModal({ isOpen, onClose, onSuccess, isDarkMode, init
       setError('');
       const effectiveInstId = (selectedInstId && selectedInstId !== 'default') ? selectedInstId : (institutions[0]?.id || selectedInstId);
       
-      let csrfToken = '';
-      try {
-        csrfToken = await ensureCsrfToken();
-      } catch {
-        // Fallback gracefully
-      }
-
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
-      };
-      if (csrfToken) {
-        headers['X-CSRF-Token'] = csrfToken;
-      }
-
-      const response = await fetch('/api/auth/login', {
+      const response = await apiFetch('/api/auth/login', {
         method: 'POST',
         credentials: 'include',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: loginUsername.trim(),
           password: loginPassword,
@@ -192,24 +178,10 @@ export default function AuthModal({ isOpen, onClose, onSuccess, isDarkMode, init
     try {
       setLoading(true);
       setError('');
-      let csrfToken = '';
-      try {
-        csrfToken = await ensureCsrfToken();
-      } catch {
-        // Fallback gracefully
-      }
-
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
-      };
-      if (csrfToken) {
-        headers['X-CSRF-Token'] = csrfToken;
-      }
-
-      const response = await fetch('/api/auth/register', {
+      const response = await apiFetch('/api/auth/register', {
         method: 'POST',
         credentials: 'include',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: signupName,
           enrollmentNumber: signupEnrollment,
@@ -258,7 +230,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess, isDarkMode, init
 
     try {
       const effectiveInstId = (selectedInstId && selectedInstId !== 'default') ? selectedInstId : (institutions[0]?.id || selectedInstId);
-      const res = await fetch('/api/auth/forgot-password', {
+      const res = await apiFetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -304,7 +276,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess, isDarkMode, init
 
     try {
       const effectiveInstId = (selectedInstId && selectedInstId !== 'default') ? selectedInstId : (institutions[0]?.id || selectedInstId);
-      const res = await fetch('/api/auth/verify-otp', {
+      const res = await apiFetch('/api/auth/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -354,7 +326,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess, isDarkMode, init
     setForgotError('');
 
     try {
-      const res = await fetch('/api/auth/reset-password', {
+      const res = await apiFetch('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

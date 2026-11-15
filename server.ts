@@ -649,7 +649,7 @@ export async function createApp(): Promise<express.Express> {
 
   // Anti-CSRF Token endpoint
   app.get('/api/csrf-token', (req, res) => {
-    let token = req.cookies?.['XSRF-TOKEN'];
+    let token = req.cookies?.['XSRF-TOKEN'] || (res as any).locals?.csrfToken;
     if (!token) {
       token = generateCsrfToken();
       res.cookie('XSRF-TOKEN', token, getCsrfCookieOptions());

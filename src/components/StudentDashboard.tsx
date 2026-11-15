@@ -13,6 +13,7 @@ import {
   fetchAnnouncementImagePreviewUrl,
   formatAttachmentSize
 } from '../utils/announcementAttachment';
+import { apiFetch } from '../utils/csrf';
 
 interface StudentDashboardProps {
   user: any;
@@ -221,7 +222,7 @@ export default function StudentDashboard({
 
   const clearNotifications = async () => {
     try {
-      const res = await fetch('/api/notifications/read', {
+      const res = await apiFetch('/api/notifications/read', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -306,7 +307,7 @@ export default function StudentDashboard({
       setIsReopening(true);
       setReopenError('');
       setReopenSuccess('');
-      const res = await fetch(`/api/requests/${ticketId}/reopen`, {
+      const res = await apiFetch(`/api/requests/${ticketId}/reopen`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -395,7 +396,7 @@ export default function StudentDashboard({
     try {
       setIsSubmitLoading(true);
       
-      const res = await fetch('/api/requests', {
+      const res = await apiFetch('/api/requests', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

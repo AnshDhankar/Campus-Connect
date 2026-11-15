@@ -12,7 +12,7 @@ import { ImageViewer } from './ImageViewer';
 import { readAndOptimizeFileAsDataUrl } from '../utils/imageCompression';
 import { AnnouncementAttachmentField } from './AnnouncementAttachmentField';
 import { PendingAnnouncementFile, downloadAnnouncementAttachment } from '../utils/announcementAttachment';
-import { ensureCsrfToken } from '../utils/csrf';
+import { apiFetch } from '../utils/csrf';
 
 interface AdminDashboardProps {
   user: any;
@@ -167,7 +167,7 @@ export default function AdminDashboard({
     setSuccess('');
 
     try {
-      const res = await fetch(`/api/institutions/${user.institutionId}`, {
+      const res = await apiFetch(`/api/institutions/${user.institutionId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -223,7 +223,7 @@ export default function AdminDashboard({
     setDeleteError('');
 
     try {
-      const res = await fetch(`/api/institutions/${user.institutionId}`, {
+      const res = await apiFetch(`/api/institutions/${user.institutionId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -305,7 +305,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/requests/${ticketId}/assign-officer`, {
+      const res = await apiFetch(`/api/requests/${ticketId}/assign-officer`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -332,7 +332,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/requests/${ticketId}/priority`, {
+      const res = await apiFetch(`/api/requests/${ticketId}/priority`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -359,7 +359,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/requests/${ticketId}/internal-notes`, {
+      const res = await apiFetch(`/api/requests/${ticketId}/internal-notes`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -385,7 +385,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/requests/${ticketId}/status`, {
+      const res = await apiFetch(`/api/requests/${ticketId}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -545,7 +545,7 @@ export default function AdminDashboard({
       setReassigning(true);
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/requests/${ticketId}/reassign`, {
+      const res = await apiFetch(`/api/requests/${ticketId}/reassign`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -625,7 +625,7 @@ export default function AdminDashboard({
       
       const method = isEditingSubDept ? 'PATCH' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
@@ -677,7 +677,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/admin/subdepartments/${id}`, {
+      const res = await apiFetch(`/api/admin/subdepartments/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -698,7 +698,7 @@ export default function AdminDashboard({
       setError('');
       setSuccess('');
       const newStatus = sub.status === 'active' ? 'inactive' : 'active';
-      const res = await fetch(`/api/admin/subdepartments/${sub.id}`, {
+      const res = await apiFetch(`/api/admin/subdepartments/${sub.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -804,24 +804,12 @@ export default function AdminDashboard({
       const url = isEditing ? `/api/announcements/${isEditingAnnouncement.id}` : '/api/announcements';
       const method = isEditing ? 'PUT' : 'POST';
 
-      let csrfToken = '';
-      try {
-        csrfToken = await ensureCsrfToken();
-      } catch {
-        // fallback if CSRF endpoint unreachable
-      }
-
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      };
-      if (csrfToken) {
-        headers['X-CSRF-Token'] = csrfToken;
-      }
-
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         credentials: 'include',
         body: JSON.stringify(payload)
       });
@@ -861,7 +849,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/announcements/${id}/toggle`, {
+      const res = await apiFetch(`/api/announcements/${id}/toggle`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -885,7 +873,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/announcements/${id}`, {
+      const res = await apiFetch(`/api/announcements/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -904,7 +892,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/announcements/${id}/restore`, {
+      const res = await apiFetch(`/api/announcements/${id}/restore`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -924,7 +912,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/announcements/${id}/permanent`, {
+      const res = await apiFetch(`/api/announcements/${id}/permanent`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -1107,7 +1095,7 @@ export default function AdminDashboard({
       const url = isEditing ? `/api/admin/staff/${editingStaffId}` : '/api/admin/staff';
       const method = isEditing ? 'PATCH' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
@@ -1185,7 +1173,7 @@ export default function AdminDashboard({
 
     try {
       setIsDeptSubmitting(true);
-      const res = await fetch('/api/admin/departments', {
+      const res = await apiFetch('/api/admin/departments', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1258,7 +1246,7 @@ export default function AdminDashboard({
     setSuccess('');
     try {
       setIsDeptSubmitting(true);
-      const res = await fetch(`/api/admin/departments/${editingDept.key}`, {
+      const res = await apiFetch(`/api/admin/departments/${editingDept.key}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -1317,7 +1305,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/admin/staff/${staffId}/reset-password`, {
+      const res = await apiFetch(`/api/admin/staff/${staffId}/reset-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1347,7 +1335,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/admin/staff/${staffId}/toggle-disable`, {
+      const res = await apiFetch(`/api/admin/staff/${staffId}/toggle-disable`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1370,7 +1358,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/admin/staff/${staffId}/unlock`, {
+      const res = await apiFetch(`/api/admin/staff/${staffId}/unlock`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1394,7 +1382,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/admin/staff/${id}`, {
+      const res = await apiFetch(`/api/admin/staff/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -1416,7 +1404,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/admin/students/${id}`, {
+      const res = await apiFetch(`/api/admin/students/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -1437,7 +1425,7 @@ export default function AdminDashboard({
     try {
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/admin/departments/${id}`, {
+      const res = await apiFetch(`/api/admin/departments/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });

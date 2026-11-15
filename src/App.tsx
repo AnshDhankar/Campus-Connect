@@ -10,6 +10,7 @@ import DatabaseStatus from './components/DatabaseStatus';
 import AuthModal from './components/AuthModal';
 import AppSidebar from './components/AppSidebar';
 import { Department } from './types';
+import { apiFetch } from './utils/csrf';
 
 // Lazy-loaded code-split dashboard modules for initial bundle optimization
 const StudentDashboard = lazy(() => import('./components/StudentDashboard'));
@@ -199,7 +200,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+    apiFetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
     setUser(null);
     setToken('');
     localStorage.removeItem('user');
