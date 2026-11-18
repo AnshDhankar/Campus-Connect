@@ -512,7 +512,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess, isDarkMode, init
                           ? 'bg-indigo-950/40 border-indigo-900 text-indigo-300' 
                           : 'bg-indigo-50 border-indigo-100 text-indigo-900'
                       }`}>
-                        A secure OTP validation code has been generated and dispatched. Please check your inbox for <strong>{forgotEmail}</strong>.
+                        {forgotMessage || <>A secure OTP validation code has been generated and dispatched. Please check your inbox for <strong>{forgotEmail}</strong>.</>}
                       </div>
 
                       <div>

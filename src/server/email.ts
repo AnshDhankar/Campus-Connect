@@ -3,7 +3,7 @@ import { db } from './db';
 
 // Simple helper to get Resend instance safely
 function getResendInstance(): Resend | null {
-  const apiKey = process.env.RESEND_API_KEY;
+  const apiKey = process.env.RESEND_API_KEY?.trim();
   if (apiKey) {
     return new Resend(apiKey);
   }
@@ -197,7 +197,8 @@ async function sendEmail(options: {
     .replace(/[^a-zA-Z0-9\s-]/g, '') // Keep only letters, numbers, spaces, and hyphens
     .replace(/\s+/g, ' ') // Collapse multiple spaces
     .trim();
-  const fromAddress = `"${sanitizedFromName}" <onboarding@resend.dev>`;
+  const customFrom = (process.env.RESEND_FROM_EMAIL || '').trim();
+  const fromAddress = customFrom || `"${sanitizedFromName}" <onboarding@resend.dev>`;
   
   // Clean, trim, validate and deduplicate the list of recipients using getSanitizedEmails
   const uniqueTo = getSanitizedEmails(options.to.join(','));
@@ -216,13 +217,17 @@ async function sendEmail(options: {
   if (resend) {
     for (const email of uniqueTo) {
       try {
-        await resend.emails.send({
+        const result = await resend.emails.send({
           from: fromAddress,
           to: email,
           subject: options.subject,
           html: options.html,
         });
-        console.log(`[Email Service] Successfully sent email to ${email} regarding "${options.subject}"`);
+        if (result?.error) {
+          console.error(`[Email Service Error] Resend rejected email to ${email}:`, result.error);
+        } else {
+          console.log(`[Email Service] Successfully sent email to ${email} regarding "${options.subject}"`);
+        }
       } catch (err: any) {
         console.error(`[Email Service Error] Failed to deliver email to ${email}:`, err);
       }

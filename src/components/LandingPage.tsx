@@ -138,7 +138,8 @@ export default function LandingPage({ onOpenDbStatus, onSuccess, departments, is
   const [resetToken, setResetToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [isSandbox, setIsSandbox] = useState(false);
+  const [isTestingMode, setIsTestingMode] = useState(false);
+  const [deliveredTo, setDeliveredTo] = useState('');
 
   useEffect(() => {
     let timer: any;
@@ -240,7 +241,8 @@ export default function LandingPage({ onOpenDbStatus, onSuccess, departments, is
     setForgotLoading(true);
     setForgotError('');
     setForgotSuccess(false);
-    setIsSandbox(false);
+    setIsTestingMode(false);
+    setDeliveredTo('');
 
     try {
       const activeInstId = selectedInst?.id || institutions[0]?.id || 'default';
@@ -267,9 +269,8 @@ export default function LandingPage({ onOpenDbStatus, onSuccess, departments, is
         setForgotStep('otp');
         setOtpCountdown(60);
         setForgotMessage(data.message);
-        if (data.isSandbox) {
-          setIsSandbox(true);
-        }
+        setIsTestingMode(Boolean(data.isTestingMode || data.isSandbox));
+        setDeliveredTo(data.deliveredTo || forgotEmail.trim());
       } else {
         setForgotError(data.error || 'Failed to dispatch OTP verification code.');
       }
@@ -1213,7 +1214,7 @@ export default function LandingPage({ onOpenDbStatus, onSuccess, departments, is
                           <form onSubmit={handleVerifyOtpSubmit} className="space-y-4 max-w-sm mx-auto">
                             <div className="text-center">
                               <p className={`text-xs ${isDarkMode ? 'text-slate-300' : 'text-navy-800'}`}>
-                                OTP dispatched to <strong className={isDarkMode ? 'text-gold-400' : 'text-navy-950 font-bold'}>{forgotEmail}</strong>
+                                OTP dispatched to <strong className={isDarkMode ? 'text-gold-400' : 'text-navy-950 font-bold'}>{deliveredTo || forgotEmail}</strong>
                               </p>
                             </div>
 
@@ -1227,7 +1228,7 @@ export default function LandingPage({ onOpenDbStatus, onSuccess, departments, is
                                 required
                                 value={otpCode}
                                 onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                                placeholder="e.g. 123456"
+                                placeholder="6-digit code"
                                 className={`w-full text-center py-2.5 tracking-[0.5em] font-extrabold text-sm rounded-lg border transition-all focus:outline-none focus:ring-1 ${
                                   isDarkMode
                                     ? 'border-charcoal-850 bg-charcoal-950/60 text-gold-450 focus:border-gold-500 focus:ring-gold-500'
@@ -1270,25 +1271,19 @@ export default function LandingPage({ onOpenDbStatus, onSuccess, departments, is
                               )}
                             </div>
 
-                            {isSandbox && (
-                              <div className={`p-3.5 border rounded-xl text-left space-y-2 shadow-xl ${
-                                isDarkMode ? 'bg-charcoal-950 border-charcoal-850' : 'bg-amber-50 border-amber-250 text-amber-900'
+                            {isTestingMode && (
+                              <div className={`p-3.5 border rounded-xl text-left space-y-1.5 shadow-sm ${
+                                isDarkMode ? 'bg-charcoal-950 border-charcoal-850 text-slate-300' : 'bg-amber-50 border-amber-200 text-amber-900'
                               }`}>
                                 <div className={`flex items-center justify-between border-b pb-1.5 ${isDarkMode ? 'border-charcoal-900' : 'border-amber-200'}`}>
-                                  <span className={`text-[9px] font-black uppercase tracking-wider flex items-center gap-1 ${isDarkMode ? 'text-gold-400' : 'text-amber-850'}`}>
+                                  <span className={`text-[10px] font-black uppercase tracking-wider flex items-center gap-1 ${isDarkMode ? 'text-gold-400' : 'text-amber-900'}`}>
                                     <Sparkles className="w-3 h-3" />
-                                    Resend Local Sandbox Interceptor
+                                    Resend Testing Mode Redirect
                                   </span>
-                                  <span className={`text-[9px] ${isDarkMode ? 'text-slate-500' : 'text-amber-700/60'}`}>Local Dev Only</span>
                                 </div>
-                                <p className={`text-[10px] leading-normal ${isDarkMode ? 'text-slate-400' : 'text-amber-800/80'}`}>
-                                  RESEND_API_KEY is not configured. We intercepted the reset request. Enter the default secure sandbox code to verify and proceed:
+                                <p className={`text-[11px] leading-relaxed ${isDarkMode ? 'text-slate-300' : 'text-amber-900'}`}>
+                                  {forgotMessage || `Resend sandbox sender (onboarding@resend.dev) routed the 6-digit code to ${deliveredTo || 'the verified Resend owner email'}. Check that inbox (and Spam) to enter the code.`}
                                 </p>
-                                <div className={`py-1 text-center rounded border ${
-                                  isDarkMode ? 'bg-charcoal-900 border-charcoal-850 text-gold-400' : 'bg-white border-amber-300 text-amber-900 font-bold'
-                                }`}>
-                                  <span className="font-mono text-sm font-extrabold tracking-wider">123456</span>
-                                </div>
                               </div>
                             )}
                           </form>

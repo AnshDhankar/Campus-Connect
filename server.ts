@@ -978,11 +978,13 @@ export async function createApp(): Promise<express.Express> {
       const otp = crypto.randomInt(100000, 1000000).toString();
 
       // Resend Configuration
-      const resendApiKey = process.env.RESEND_API_KEY;
+      const resendApiKey = process.env.RESEND_API_KEY?.trim();
+      const fromSender = (process.env.RESEND_FROM_EMAIL || '').trim() || 'CampusConnect Security <onboarding@resend.dev>';
 
       let emailSentSuccessfully = false;
       let emailErrorDetails = '';
       let isRecipientRestricted = false;
+      let deliveredToEmail = matchedUser.email;
 
       if (resendApiKey) {
         try {
@@ -1095,8 +1097,8 @@ export async function createApp(): Promise<express.Express> {
 </html>
           `;
 
-          let sendResult = await resend.emails.send({
-            from: 'CampusConnect Security <onboarding@resend.dev>',
+          const sendResult = await resend.emails.send({
+            from: fromSender,
             to: matchedUser.email,
             subject: 'Your CampusConnect Security Verification Code',
             text: `Hello ${matchedUser.name},\n\nYour CampusConnect security verification code is: ${otp}\n\nThis code is valid for 10 minutes. If you did not request this code, please secure your account.\n\nCampusConnect Security`,
@@ -1108,26 +1110,30 @@ export async function createApp(): Promise<express.Express> {
             const errMsg = errObj.message || JSON.stringify(sendResult.error);
             if (errMsg.includes('only send testing emails to your own email address') || errObj.statusCode === 403) {
               isRecipientRestricted = true;
-              console.log(`[Resend Testing Mode] Recipient '${matchedUser.email}' is restricted in Resend testing mode. Rerouting OTP delivery to verified owner (2007anshdhankar@gmail.com)...`);
-              
+              const ownerMatch = errMsg.match(/\(([^@\s]+@[^@\s]+\.[^)\s]+)\)/);
+              const fallbackRecipient = (process.env.RESEND_TEST_EMAIL || ownerMatch?.[1] || '2007anshdhankar@gmail.com').trim();
+              console.log(`[Resend Testing Mode] Recipient '${matchedUser.email}' is restricted in Resend testing mode. Rerouting OTP delivery to verified owner (${fallbackRecipient})...`);
+
               // Deliver to verified owner address so user receives code in real inbox
               const fallbackSend = await resend.emails.send({
-                from: 'CampusConnect Security <onboarding@resend.dev>',
-                to: '2007anshdhankar@gmail.com',
+                from: fromSender,
+                to: fallbackRecipient,
                 subject: `Your CampusConnect Security Code (Account: ${matchedUser.email})`,
-                text: `Hello ${matchedUser.name},\n\nYour security verification code for ${matchedUser.email} is: ${otp}\n\n(Note: Delivered to 2007anshdhankar@gmail.com because Resend is in testing mode).\n\nValid for 10 minutes.`,
+                text: `Hello ${matchedUser.name},\n\nYour security verification code for ${matchedUser.email} is: ${otp}\n\n(Note: Delivered to ${fallbackRecipient} because Resend is in testing mode without a verified sending domain).\n\nValid for 10 minutes.`,
                 html: htmlContent.replace(
                   `<h2>Hello ${matchedUser.name},</h2>`,
-                  `<h2>Hello ${matchedUser.name},</h2><div style="background-color:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:10px;border-radius:6px;font-size:12px;margin-bottom:16px;"><strong>Resend Testing Mode:</strong> This verification code was generated for <strong>${matchedUser.email}</strong> and delivered to your verified owner email.</div>`
+                  `<h2>Hello ${matchedUser.name},</h2><div style="background-color:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:10px;border-radius:6px;font-size:12px;margin-bottom:16px;"><strong>Resend Testing Mode:</strong> This verification code was generated for <strong>${matchedUser.email}</strong> and delivered to your verified Resend owner email (<strong>${fallbackRecipient}</strong>).</div>`
                 )
               });
 
               if (!fallbackSend.error) {
                 emailSentSuccessfully = true;
-                console.log(`[Resend Testing Mode] Successfully dispatched OTP email to verified owner: 2007anshdhankar@gmail.com`);
+                deliveredToEmail = fallbackRecipient;
+                console.log(`[Resend Testing Mode] Successfully dispatched OTP email to verified owner: ${fallbackRecipient}`);
               } else {
+                const fbErr = (fallbackSend.error as any)?.message || JSON.stringify(fallbackSend.error);
                 console.warn(`[Resend Testing Mode] Fallback send error:`, fallbackSend.error);
-                emailErrorDetails = JSON.stringify(fallbackSend.error);
+                emailErrorDetails = fbErr;
               }
             } else {
               throw new Error(errMsg);
@@ -1144,8 +1150,8 @@ export async function createApp(): Promise<express.Express> {
         emailErrorDetails = 'Email delivery service is not configured (missing RESEND_API_KEY).';
       }
 
-      // If email sent successfully OR testing mode was detected, persist OTP challenge securely
-      if (emailSentSuccessfully || isRecipientRestricted) {
+      // Only persist OTP challenge if the email was actually delivered (directly or via testing-mode owner inbox)
+      if (emailSentSuccessfully) {
         // Invalidate all previous OTPs for this user & institution
         await db.otps.invalidatePrevious(institutionId, inputEmail);
 
@@ -1168,13 +1174,15 @@ export async function createApp(): Promise<express.Express> {
         lastOtpRequest.set(`${institutionId}:${inputEmail}`, now);
 
         const successMessage = isRecipientRestricted
-          ? `Verification code generated. Resend is in testing mode: Code delivered to verified owner inbox (2007anshdhankar@gmail.com) for account ${matchedUser.email}.`
-          : 'A 6-digit verification code has been dispatched to your registered email address.';
+          ? `Resend is in testing mode (no verified domain). Your 6-digit verification code for ${matchedUser.email} was emailed to ${deliveredToEmail}.`
+          : `A 6-digit verification code has been dispatched to ${matchedUser.email}.`;
 
         return res.json({
           success: true,
           message: successMessage,
-          isSandbox: isRecipientRestricted
+          isSandbox: false,
+          isTestingMode: isRecipientRestricted,
+          deliveredTo: deliveredToEmail
         });
       } else {
         return res.status(422).json({
@@ -2788,12 +2796,13 @@ export async function createApp(): Promise<express.Express> {
       });
 
       // Send email notification
-      const resendApiKey = process.env.RESEND_API_KEY;
+      const resendApiKey = process.env.RESEND_API_KEY?.trim();
       if (resendApiKey) {
         try {
           const resend = new Resend(resendApiKey);
+          const fromSender = (process.env.RESEND_FROM_EMAIL || '').trim() || 'CampusConnect Security <onboarding@resend.dev>';
           await resend.emails.send({
-            from: 'CampusConnect Security <onboarding@resend.dev>',
+            from: fromSender,
             to: staffAccount.email,
             subject: 'CampusConnect - Your Officer Password Has Been Reset',
             html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
@@ -2842,12 +2851,13 @@ export async function createApp(): Promise<express.Express> {
       });
 
       // Send email notification
-      const resendApiKey = process.env.RESEND_API_KEY;
+      const resendApiKey = process.env.RESEND_API_KEY?.trim();
       if (resendApiKey) {
         try {
           const resend = new Resend(resendApiKey);
+          const fromSender = (process.env.RESEND_FROM_EMAIL || '').trim() || 'CampusConnect Security <onboarding@resend.dev>';
           await resend.emails.send({
-            from: 'CampusConnect Security <onboarding@resend.dev>',
+            from: fromSender,
             to: staffAccount.email,
             subject: 'CampusConnect - Officer Account Status Updated',
             html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
@@ -3409,9 +3419,10 @@ export async function createApp(): Promise<express.Express> {
       }
 
       // 3. Email notifications via Resend
-      const resendApiKey = process.env.RESEND_API_KEY;
+      const resendApiKey = process.env.RESEND_API_KEY?.trim();
       if (resendApiKey) {
         const resend = new Resend(resendApiKey);
+        const fromAnnouncements = (process.env.RESEND_FROM_EMAIL || '').trim() || 'CampusConnect Announcements <onboarding@resend.dev>';
         const recipients: string[] = [];
         
         if (announcement.notifyStudents) {
@@ -3435,7 +3446,7 @@ export async function createApp(): Promise<express.Express> {
         for (const email of uniqueRecipients) {
           try {
             await resend.emails.send({
-              from: 'CampusConnect Announcements <onboarding@resend.dev>',
+              from: fromAnnouncements,
               to: email,
               subject: `CampusConnect - ${announcement.title}`,
               html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
