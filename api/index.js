@@ -1,9 +1,12 @@
-const { createApp } = require('./_server.cjs');
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
 
 let cachedAppPromise = null;
 
 function getApp() {
   if (!cachedAppPromise) {
+    const { createApp } = require('./_server.cjs');
     cachedAppPromise = createApp().catch((err) => {
       cachedAppPromise = null;
       throw err;
@@ -12,7 +15,7 @@ function getApp() {
   return cachedAppPromise;
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   try {
     const app = await getApp();
     return app(req, res);
@@ -26,4 +29,4 @@ module.exports = async function handler(req, res) {
       }));
     }
   }
-};
+}

@@ -69,14 +69,14 @@ git push -u origin main
 
 ## 3. Deploying Globally for Free on Vercel
 
-CampusConnect includes `vercel.json` and `api/index.ts`, allowing both the **React frontend** and **Express `/api/*` backend** to deploy together in a single free Vercel project.
+CampusConnect includes `vercel.json` and `api/index.js`, allowing both the **React frontend** and **Express `/api/*` backend** to deploy together in a single free Vercel project.
 
 ### Step A: Configure MongoDB Atlas Network Access
 1. In **MongoDB Atlas** -> **Network Access**, add `0.0.0.0/0` (Allow Access from Anywhere), since Vercel Serverless Functions use dynamic outbound IPs.
 
 ### Step B: Import & Configure in Vercel
 1. Go to [Vercel](https://vercel.com) -> **Add New -> Project** and import your GitHub repository.
-2. Vercel auto-detects `vercel.json` (`npm run vercel-build` -> `dist/` + `api/index.ts` serverless backend).
+2. Vercel auto-detects `vercel.json` (`npm run vercel-build` -> `dist/` + `api/index.js` serverless backend).
 3. Add the following **Environment Variables** in **Vercel Project Settings -> Environment Variables**:
    - `NODE_ENV` = `production`
    - `MONGODB_URI` = `mongodb+srv://...` (your Atlas connection string)
