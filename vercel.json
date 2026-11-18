@@ -5,7 +5,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/index.cjs": {
-      "maxDuration": 30
+      "includeFiles": "api/_server.cjs"
     }
   },
   "rewrites": [
