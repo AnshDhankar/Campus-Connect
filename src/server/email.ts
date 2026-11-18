@@ -1,13 +1,201 @@
 import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 import { db } from './db';
 
-// Simple helper to get Resend instance safely
+function getSmtpConfig() {
+  const user = (process.env.SMTP_USER || process.env.GMAIL_USER || '').trim();
+  const rawPass = process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || '';
+  const pass = rawPass.replace(/\s+/g, '').trim();
+  if (!user || !pass) {
+    return null;
+  }
+  const host = (process.env.SMTP_HOST || '').trim() || 'smtp.gmail.com';
+  const port = parseInt((process.env.SMTP_PORT || '465').trim(), 10) || 465;
+  const secure = process.env.SMTP_SECURE ? process.env.SMTP_SECURE.trim().toLowerCase() === 'true' : port === 465;
+  const fromEmail = (process.env.SMTP_FROM || process.env.RESEND_FROM_EMAIL || '').trim();
+  return { host, port, secure, user, pass, fromEmail };
+}
+
 function getResendInstance(): Resend | null {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (apiKey) {
     return new Resend(apiKey);
   }
   return null;
+}
+
+export function isEmailDeliveryConfigured(): boolean {
+  return Boolean(getSmtpConfig() || process.env.RESEND_API_KEY?.trim());
+}
+
+function sanitizeFromName(name: string): string {
+  return (name || 'CampusConnect Portal')
+    .replace(/"/g, '')
+    .replace(/[()]/g, ' ')
+    .replace(/[^a-zA-Z0-9\s-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim() || 'CampusConnect Portal';
+}
+
+export interface TransactionalEmailOptions {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+  fromName?: string;
+  allowTestingModeFallback?: boolean;
+  testingModeHtmlPrefix?: string;
+  testingModeSubject?: string;
+  testingModeText?: string;
+}
+
+export interface TransactionalEmailResult {
+  success: boolean;
+  provider: 'smtp' | 'resend' | 'none';
+  deliveredTo?: string;
+  isTestingMode?: boolean;
+  error?: string;
+}
+
+export async function sendTransactionalEmail(options: TransactionalEmailOptions): Promise<TransactionalEmailResult> {
+  const recipient = options.to.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+    return { success: false, provider: 'none', error: 'Invalid recipient email address.' };
+  }
+
+  const cleanFromName = sanitizeFromName(options.fromName || 'CampusConnect Security');
+
+  // 1. Primary Transport: Standard SMTP (e.g., Gmail App Password, Brevo SMTP) — works without any custom domain
+  const smtp = getSmtpConfig();
+  if (smtp) {
+    try {
+      const transporter = nodemailer.createTransport({
+        host: smtp.host,
+        port: smtp.port,
+        secure: smtp.secure,
+        auth: {
+          user: smtp.user,
+          pass: smtp.pass,
+        },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 15000,
+      });
+
+      const fromHeader = smtp.fromEmail || `"${cleanFromName}" <${smtp.user}>`;
+      await transporter.sendMail({
+        from: fromHeader,
+        to: recipient,
+        subject: options.subject,
+        text: options.text,
+        html: options.html,
+      });
+
+      console.log(`[SMTP Email] Successfully sent "${options.subject}" to ${recipient}`);
+      return {
+        success: true,
+        provider: 'smtp',
+        deliveredTo: recipient,
+        isTestingMode: false,
+      };
+    } catch (smtpErr: any) {
+      const errMsg = smtpErr?.message || String(smtpErr);
+      console.error(`[SMTP Email Error] Failed to send to ${recipient}:`, errMsg);
+      return {
+        success: false,
+        provider: 'smtp',
+        error: errMsg,
+      };
+    }
+  }
+
+  // 2. Secondary Transport: Resend API (requires custom verified domain for external recipients)
+  const resend = getResendInstance();
+  if (!resend) {
+    return {
+      success: false,
+      provider: 'none',
+      error: 'Email delivery service is not configured (set SMTP_USER/SMTP_PASS or RESEND_API_KEY).',
+    };
+  }
+
+  const fromHeader = (process.env.RESEND_FROM_EMAIL || '').trim() || `"${cleanFromName}" <onboarding@resend.dev>`;
+
+  try {
+    const sendResult = await resend.emails.send({
+      from: fromHeader,
+      to: recipient,
+      subject: options.subject,
+      text: options.text,
+      html: options.html,
+    });
+
+    if (!sendResult.error) {
+      console.log(`[Resend Email] Successfully sent "${options.subject}" to ${recipient}`);
+      return {
+        success: true,
+        provider: 'resend',
+        deliveredTo: recipient,
+        isTestingMode: false,
+      };
+    }
+
+    const errObj = sendResult.error as any;
+    const errMsg = errObj.message || JSON.stringify(sendResult.error);
+
+    if (
+      options.allowTestingModeFallback &&
+      (errMsg.includes('only send testing emails to your own email address') || errObj.statusCode === 403)
+    ) {
+      const ownerMatch = errMsg.match(/\(([^@\s]+@[^@\s]+\.[^)\s]+)\)/);
+      const fallbackRecipient = (process.env.RESEND_TEST_EMAIL || ownerMatch?.[1] || '2007anshdhankar@gmail.com').trim();
+      console.log(`[Resend Testing Mode] Recipient '${recipient}' is restricted. Rerouting to verified owner (${fallbackRecipient})...`);
+
+      const fallbackHtml = options.testingModeHtmlPrefix
+        ? options.html.replace(/(<div class="content">)/i, `$1${options.testingModeHtmlPrefix}`)
+        : options.html;
+
+      const fallbackSend = await resend.emails.send({
+        from: fromHeader,
+        to: fallbackRecipient,
+        subject: options.testingModeSubject || options.subject,
+        text: options.testingModeText || options.text,
+        html: fallbackHtml,
+      });
+
+      if (!fallbackSend.error) {
+        console.log(`[Resend Testing Mode] Successfully dispatched email to verified owner: ${fallbackRecipient}`);
+        return {
+          success: true,
+          provider: 'resend',
+          deliveredTo: fallbackRecipient,
+          isTestingMode: true,
+        };
+      }
+
+      const fbErr = (fallbackSend.error as any)?.message || JSON.stringify(fallbackSend.error);
+      console.warn(`[Resend Testing Mode] Fallback send error:`, fbErr);
+      return {
+        success: false,
+        provider: 'resend',
+        error: fbErr,
+      };
+    }
+
+    return {
+      success: false,
+      provider: 'resend',
+      error: errMsg,
+    };
+  } catch (err: any) {
+    const errMsg = err?.message || String(err);
+    console.error('[Resend Error] Failed to send email via Resend:', errMsg);
+    return {
+      success: false,
+      provider: 'resend',
+      error: errMsg,
+    };
+  }
 }
 
 // Common email shell generator for professional aesthetic
@@ -182,24 +370,15 @@ function getSanitizedEmails(primary?: string, additional?: string): string[] {
   return Array.from(emailsSet);
 }
 
-// Common sender utility supporting logs logging and real Resend delivery
+// Common sender utility supporting logs and real SMTP / Resend delivery
 async function sendEmail(options: {
   to: string[];
   subject: string;
   html: string;
   fromName: string;
 }) {
-  const resend = getResendInstance();
-  // Sanitize fromName to remove double quotes, parentheses, and other characters that can trigger email firewall rejections
-  const sanitizedFromName = options.fromName
-    .replace(/"/g, '')
-    .replace(/[()]/g, ' ') // Replace parentheses with spaces to prevent malformed header rejection
-    .replace(/[^a-zA-Z0-9\s-]/g, '') // Keep only letters, numbers, spaces, and hyphens
-    .replace(/\s+/g, ' ') // Collapse multiple spaces
-    .trim();
-  const customFrom = (process.env.RESEND_FROM_EMAIL || '').trim();
-  const fromAddress = customFrom || `"${sanitizedFromName}" <onboarding@resend.dev>`;
-  
+  const sanitizedFromName = sanitizeFromName(options.fromName);
+
   // Clean, trim, validate and deduplicate the list of recipients using getSanitizedEmails
   const uniqueTo = getSanitizedEmails(options.to.join(','));
 
@@ -214,29 +393,23 @@ async function sendEmail(options: {
     return;
   }
 
-  if (resend) {
+  if (isEmailDeliveryConfigured()) {
     for (const email of uniqueTo) {
-      try {
-        const result = await resend.emails.send({
-          from: fromAddress,
-          to: email,
-          subject: options.subject,
-          html: options.html,
-        });
-        if (result?.error) {
-          console.error(`[Email Service Error] Resend rejected email to ${email}:`, result.error);
-        } else {
-          console.log(`[Email Service] Successfully sent email to ${email} regarding "${options.subject}"`);
-        }
-      } catch (err: any) {
-        console.error(`[Email Service Error] Failed to deliver email to ${email}:`, err);
+      const result = await sendTransactionalEmail({
+        to: email,
+        subject: options.subject,
+        html: options.html,
+        fromName: sanitizedFromName,
+      });
+      if (!result.success) {
+        console.error(`[Email Service Error] Failed to deliver email to ${email}:`, result.error);
       }
     }
   } else {
     // Sandbox log fallback
     console.log(`\n=============================================================`);
     console.log(`[EMAIL SANDBOX SIMULATION]`);
-    console.log(`From: ${fromAddress}`);
+    console.log(`From: "${sanitizedFromName}"`);
     console.log(`To: ${uniqueTo.join(', ')}`);
     console.log(`Subject: ${options.subject}`);
     console.log(`-------------------------------------------------------------`);

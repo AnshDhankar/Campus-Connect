@@ -4,7 +4,6 @@ import path from 'path';
 import fs from 'fs';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { Resend } from 'resend';
 import { 
   db, 
   connectToDatabase, 
@@ -18,7 +17,9 @@ import { authenticateToken, generateToken, requireRole, AuthenticatedRequest, va
 import { 
   handleSubmissionNotifications, 
   handleResolutionNotifications, 
-  handleReopenNotifications 
+  handleReopenNotifications,
+  sendTransactionalEmail,
+  isEmailDeliveryConfigured
 } from './src/server/email';
 import { HelpComplaintRequest, RequestStatus, Announcement } from './src/types';
 import { handleDemoCredentials } from './src/server/demoAuth';
@@ -977,20 +978,7 @@ export async function createApp(): Promise<express.Express> {
       // Generate cryptographically secure random 6-digit OTP
       const otp = crypto.randomInt(100000, 1000000).toString();
 
-      // Resend Configuration
-      const resendApiKey = process.env.RESEND_API_KEY?.trim();
-      const fromSender = (process.env.RESEND_FROM_EMAIL || '').trim() || 'CampusConnect Security <onboarding@resend.dev>';
-
-      let emailSentSuccessfully = false;
-      let emailErrorDetails = '';
-      let isRecipientRestricted = false;
-      let deliveredToEmail = matchedUser.email;
-
-      if (resendApiKey) {
-        try {
-          const resend = new Resend(resendApiKey);
-
-          const htmlContent = `
+      const htmlContent = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -1095,63 +1083,24 @@ export async function createApp(): Promise<express.Express> {
   </div>
 </body>
 </html>
-          `;
+      `;
 
-          const sendResult = await resend.emails.send({
-            from: fromSender,
-            to: matchedUser.email,
-            subject: 'Your CampusConnect Security Verification Code',
-            text: `Hello ${matchedUser.name},\n\nYour CampusConnect security verification code is: ${otp}\n\nThis code is valid for 10 minutes. If you did not request this code, please secure your account.\n\nCampusConnect Security`,
-            html: htmlContent,
-          });
+      const deliveryResult = await sendTransactionalEmail({
+        to: matchedUser.email,
+        subject: 'Your CampusConnect Security Verification Code',
+        text: `Hello ${matchedUser.name},\n\nYour CampusConnect security verification code is: ${otp}\n\nThis code is valid for 10 minutes. If you did not request this code, please secure your account.\n\nCampusConnect Security`,
+        html: htmlContent,
+        fromName: 'CampusConnect Security',
+        allowTestingModeFallback: true,
+        testingModeSubject: `Your CampusConnect Security Code (Account: ${matchedUser.email})`,
+        testingModeText: `Hello ${matchedUser.name},\n\nYour security verification code for ${matchedUser.email} is: ${otp}\n\n(Delivered to your verified Resend owner inbox because Resend is in testing mode without a verified domain).\n\nValid for 10 minutes.`,
+        testingModeHtmlPrefix: `<div style="background-color:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:10px;border-radius:6px;font-size:12px;margin-bottom:16px;"><strong>Resend Testing Mode:</strong> This verification code was generated for <strong>${matchedUser.email}</strong> and delivered to your verified Resend owner email.</div>`
+      });
 
-          if (sendResult.error) {
-            const errObj = sendResult.error as any;
-            const errMsg = errObj.message || JSON.stringify(sendResult.error);
-            if (errMsg.includes('only send testing emails to your own email address') || errObj.statusCode === 403) {
-              isRecipientRestricted = true;
-              const ownerMatch = errMsg.match(/\(([^@\s]+@[^@\s]+\.[^)\s]+)\)/);
-              const fallbackRecipient = (process.env.RESEND_TEST_EMAIL || ownerMatch?.[1] || '2007anshdhankar@gmail.com').trim();
-              console.log(`[Resend Testing Mode] Recipient '${matchedUser.email}' is restricted in Resend testing mode. Rerouting OTP delivery to verified owner (${fallbackRecipient})...`);
+      if (deliveryResult.success) {
+        const deliveredToEmail = deliveryResult.deliveredTo || matchedUser.email;
+        const isRecipientRestricted = Boolean(deliveryResult.isTestingMode);
 
-              // Deliver to verified owner address so user receives code in real inbox
-              const fallbackSend = await resend.emails.send({
-                from: fromSender,
-                to: fallbackRecipient,
-                subject: `Your CampusConnect Security Code (Account: ${matchedUser.email})`,
-                text: `Hello ${matchedUser.name},\n\nYour security verification code for ${matchedUser.email} is: ${otp}\n\n(Note: Delivered to ${fallbackRecipient} because Resend is in testing mode without a verified sending domain).\n\nValid for 10 minutes.`,
-                html: htmlContent.replace(
-                  `<h2>Hello ${matchedUser.name},</h2>`,
-                  `<h2>Hello ${matchedUser.name},</h2><div style="background-color:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:10px;border-radius:6px;font-size:12px;margin-bottom:16px;"><strong>Resend Testing Mode:</strong> This verification code was generated for <strong>${matchedUser.email}</strong> and delivered to your verified Resend owner email (<strong>${fallbackRecipient}</strong>).</div>`
-                )
-              });
-
-              if (!fallbackSend.error) {
-                emailSentSuccessfully = true;
-                deliveredToEmail = fallbackRecipient;
-                console.log(`[Resend Testing Mode] Successfully dispatched OTP email to verified owner: ${fallbackRecipient}`);
-              } else {
-                const fbErr = (fallbackSend.error as any)?.message || JSON.stringify(fallbackSend.error);
-                console.warn(`[Resend Testing Mode] Fallback send error:`, fallbackSend.error);
-                emailErrorDetails = fbErr;
-              }
-            } else {
-              throw new Error(errMsg);
-            }
-          } else {
-            emailSentSuccessfully = true;
-            console.log(`[Resend] Secure OTP email successfully sent to registered recipient: ${matchedUser.email}`);
-          }
-        } catch (err: any) {
-          console.error('[Resend Error] Failed to send OTP email via Resend:', err.message || err);
-          emailErrorDetails = err.message || String(err);
-        }
-      } else {
-        emailErrorDetails = 'Email delivery service is not configured (missing RESEND_API_KEY).';
-      }
-
-      // Only persist OTP challenge if the email was actually delivered (directly or via testing-mode owner inbox)
-      if (emailSentSuccessfully) {
         // Invalidate all previous OTPs for this user & institution
         await db.otps.invalidatePrevious(institutionId, inputEmail);
 
@@ -1175,7 +1124,7 @@ export async function createApp(): Promise<express.Express> {
 
         const successMessage = isRecipientRestricted
           ? `Resend is in testing mode (no verified domain). Your 6-digit verification code for ${matchedUser.email} was emailed to ${deliveredToEmail}.`
-          : `A 6-digit verification code has been dispatched to ${matchedUser.email}.`;
+          : `A 6-digit verification code has been dispatched to ${deliveredToEmail}.`;
 
         return res.json({
           success: true,
@@ -1186,7 +1135,7 @@ export async function createApp(): Promise<express.Express> {
         });
       } else {
         return res.status(422).json({
-          error: `Failed to deliver OTP verification email: ${emailErrorDetails}`,
+          error: `Failed to deliver OTP verification email: ${deliveryResult.error || 'Email service failed.'}`,
           code: 'EMAIL_DELIVERY_FAILED'
         });
       }
@@ -2796,27 +2745,20 @@ export async function createApp(): Promise<express.Express> {
       });
 
       // Send email notification
-      const resendApiKey = process.env.RESEND_API_KEY?.trim();
-      if (resendApiKey) {
-        try {
-          const resend = new Resend(resendApiKey);
-          const fromSender = (process.env.RESEND_FROM_EMAIL || '').trim() || 'CampusConnect Security <onboarding@resend.dev>';
-          await resend.emails.send({
-            from: fromSender,
-            to: staffAccount.email,
-            subject: 'CampusConnect - Your Officer Password Has Been Reset',
-            html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
-              <h2 style="color: #1e3a8a;">Password Reset by Administrator</h2>
-              <p>Hello <strong>${staffAccount.name}</strong>,</p>
-              <p>An administrator has reset your password.</p>
-              <p>New Temporary Password: <code style="background: #f1f5f9; padding: 3px 6px; border-radius: 4px;">${password}</code></p>
-              ${forcePasswordChange ? '<p style="color: #b45309; font-weight: bold;">Note: You are required to change this password on your next sign in.</p>' : ''}
-              <p style="font-size: 11px; color: #94a3b8; margin-top: 25px;">CampusConnect Isolated Tenant Services</p>
-            </div>`
-          });
-        } catch (emailErr) {
-          console.error('Failed to send reset email:', emailErr);
-        }
+      if (isEmailDeliveryConfigured()) {
+        await sendTransactionalEmail({
+          to: staffAccount.email,
+          subject: 'CampusConnect - Your Officer Password Has Been Reset',
+          fromName: 'CampusConnect Security',
+          html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+            <h2 style="color: #1e3a8a;">Password Reset by Administrator</h2>
+            <p>Hello <strong>${staffAccount.name}</strong>,</p>
+            <p>An administrator has reset your password.</p>
+            <p>New Temporary Password: <code style="background: #f1f5f9; padding: 3px 6px; border-radius: 4px;">${password}</code></p>
+            ${forcePasswordChange ? '<p style="color: #b45309; font-weight: bold;">Note: You are required to change this password on your next sign in.</p>' : ''}
+            <p style="font-size: 11px; color: #94a3b8; margin-top: 25px;">CampusConnect Isolated Tenant Services</p>
+          </div>`
+        });
       }
 
       res.json({ success: true, message: 'Password reset successfully.' });
@@ -2851,25 +2793,18 @@ export async function createApp(): Promise<express.Express> {
       });
 
       // Send email notification
-      const resendApiKey = process.env.RESEND_API_KEY?.trim();
-      if (resendApiKey) {
-        try {
-          const resend = new Resend(resendApiKey);
-          const fromSender = (process.env.RESEND_FROM_EMAIL || '').trim() || 'CampusConnect Security <onboarding@resend.dev>';
-          await resend.emails.send({
-            from: fromSender,
-            to: staffAccount.email,
-            subject: 'CampusConnect - Officer Account Status Updated',
-            html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
-              <h2 style="color: #1e3a8a;">Account Status Update</h2>
-              <p>Hello <strong>${staffAccount.name}</strong>,</p>
-              <p>Your officer account status has been updated. It is now <strong>${!activeState ? 'DISABLED' : 'ENABLED'}</strong>.</p>
-              <p style="font-size: 11px; color: #94a3b8; margin-top: 25px;">CampusConnect Isolated Tenant Services</p>
-            </div>`
-          });
-        } catch (emailErr) {
-          console.error('Failed to send status update email:', emailErr);
-        }
+      if (isEmailDeliveryConfigured()) {
+        await sendTransactionalEmail({
+          to: staffAccount.email,
+          subject: 'CampusConnect - Officer Account Status Updated',
+          fromName: 'CampusConnect Security',
+          html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+            <h2 style="color: #1e3a8a;">Account Status Update</h2>
+            <p>Hello <strong>${staffAccount.name}</strong>,</p>
+            <p>Your officer account status has been updated. It is now <strong>${!activeState ? 'DISABLED' : 'ENABLED'}</strong>.</p>
+            <p style="font-size: 11px; color: #94a3b8; margin-top: 25px;">CampusConnect Isolated Tenant Services</p>
+          </div>`
+        });
       }
 
       res.json({ success: true, disabled: !activeState, message: `Account ${!activeState ? 'disabled' : 'enabled'} successfully.` });
@@ -3418,11 +3353,8 @@ export async function createApp(): Promise<express.Express> {
         }
       }
 
-      // 3. Email notifications via Resend
-      const resendApiKey = process.env.RESEND_API_KEY?.trim();
-      if (resendApiKey) {
-        const resend = new Resend(resendApiKey);
-        const fromAnnouncements = (process.env.RESEND_FROM_EMAIL || '').trim() || 'CampusConnect Announcements <onboarding@resend.dev>';
+      // 3. Email notifications via SMTP or Resend
+      if (isEmailDeliveryConfigured()) {
         const recipients: string[] = [];
         
         if (announcement.notifyStudents) {
@@ -3442,37 +3374,34 @@ export async function createApp(): Promise<express.Express> {
 
         // Unique emails
         const uniqueRecipients = Array.from(new Set(recipients));
+        const announcementHtml = `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+          <span style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: #1e3a8a; background: #eff6ff; padding: 2px 6px; border: 1px solid #bfdbfe; border-radius: 4px;">
+            ${announcement.category.toUpperCase()}
+          </span>
+          <h2 style="color: #0f172a; margin-top: 10px; margin-bottom: 5px;">${announcement.title}</h2>
+          <p style="color: #64748b; font-size: 11px; margin-bottom: 20px;">
+            Posted By: <strong>${announcement.createdBy} (${announcement.creatorRole.toUpperCase()})</strong> on ${new Date(announcement.publishDate).toLocaleDateString()}
+          </p>
+          <div style="color: #334155; line-height: 1.5; white-space: pre-wrap; margin-bottom: 25px;">${announcement.description}</div>
+          ${announcement.attachmentUrl ? (
+            announcement.attachmentUrl.startsWith('/')
+              ? (process.env.APP_URL
+                  ? `<p style="font-size: 12px;"><a href="${process.env.APP_URL.replace(/\/+$/, '')}${announcement.attachmentUrl}" style="color: #2563eb; font-weight: bold; text-decoration: none;">Download Attachment${announcement.attachmentName ? `: ${announcement.attachmentName}` : ''}</a></p>`
+                  : `<p style="font-size: 12px; color: #475569;"><strong>Attachment:</strong> ${announcement.attachmentName || 'Document'} (Log in to CampusConnect to view or download)</p>`)
+              : `<p style="font-size: 12px;"><a href="${announcement.attachmentUrl}" style="color: #2563eb; font-weight: bold; text-decoration: none;">Download Attachment${announcement.attachmentName ? `: ${announcement.attachmentName}` : ''}</a></p>`
+          ) : ''}
+          <p style="font-size: 11px; color: #94a3b8; margin-top: 35px; border-top: 1px solid #f1f5f9; padding-top: 15px;">
+            CampusConnect Portal Services
+          </p>
+        </div>`;
         
         for (const email of uniqueRecipients) {
-          try {
-            await resend.emails.send({
-              from: fromAnnouncements,
-              to: email,
-              subject: `CampusConnect - ${announcement.title}`,
-              html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
-                <span style="font-size: 10px; font-weight: bold; text-transform: uppercase; color: #1e3a8a; background: #eff6ff; padding: 2px 6px; border: 1px solid #bfdbfe; border-radius: 4px;">
-                  ${announcement.category.toUpperCase()}
-                </span>
-                <h2 style="color: #0f172a; margin-top: 10px; margin-bottom: 5px;">${announcement.title}</h2>
-                <p style="color: #64748b; font-size: 11px; margin-bottom: 20px;">
-                  Posted By: <strong>${announcement.createdBy} (${announcement.creatorRole.toUpperCase()})</strong> on ${new Date(announcement.publishDate).toLocaleDateString()}
-                </p>
-                <div style="color: #334155; line-height: 1.5; white-space: pre-wrap; margin-bottom: 25px;">${announcement.description}</div>
-                ${announcement.attachmentUrl ? (
-                  announcement.attachmentUrl.startsWith('/')
-                    ? (process.env.APP_URL
-                        ? `<p style="font-size: 12px;"><a href="${process.env.APP_URL.replace(/\/+$/, '')}${announcement.attachmentUrl}" style="color: #2563eb; font-weight: bold; text-decoration: none;">Download Attachment${announcement.attachmentName ? `: ${announcement.attachmentName}` : ''}</a></p>`
-                        : `<p style="font-size: 12px; color: #475569;"><strong>Attachment:</strong> ${announcement.attachmentName || 'Document'} (Log in to CampusConnect to view or download)</p>`)
-                    : `<p style="font-size: 12px;"><a href="${announcement.attachmentUrl}" style="color: #2563eb; font-weight: bold; text-decoration: none;">Download Attachment${announcement.attachmentName ? `: ${announcement.attachmentName}` : ''}</a></p>`
-                ) : ''}
-                <p style="font-size: 11px; color: #94a3b8; margin-top: 35px; border-top: 1px solid #f1f5f9; padding-top: 15px;">
-                  CampusConnect Portal Services
-                </p>
-              </div>`
-            });
-          } catch (err) {
-            console.error(`Failed to send email to ${email}:`, err);
-          }
+          await sendTransactionalEmail({
+            to: email,
+            subject: `CampusConnect - ${announcement.title}`,
+            html: announcementHtml,
+            fromName: 'CampusConnect Announcements',
+          });
         }
       }
     } catch (e) {
